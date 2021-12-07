@@ -70,6 +70,11 @@ public class Crowdsale implements ICrowdsale
         // value should be greater than zero
         Context.require(_value.compareTo(BigInteger.ZERO) >= 0);
 
+        //check value is enough to be refund
+        BigInteger requireTokenValue = fundingGoal.divide(ONE_ICX);
+        requireTokenValue =  requireTokenValue.multiply(tokenPrice);
+        Context.require(_value.compareTo(requireTokenValue) >= 0);
+
         // start Crowdsale hereafter
         this.activeCrowdsale = true;
         // emit eventlog
@@ -101,6 +106,20 @@ public class Crowdsale implements ICrowdsale
         Context.call(this.tokenScore, "transfer", _from, _value.multiply(this.tokenPrice), _data);
         // emit eventlog
         FundDeposit(_from, _value);
+        CurrentFunding(_from,this.safeGetAmountRaised());
+    }
+
+    @External
+    public void withDraw(BigInteger amount){
+
+        Context.require(Context.getCaller().equals(this.beneficiary));
+        Context.require(amount.compareTo(BigInteger.ZERO) >= 0);
+        BigInteger amountRaised = safeGetAmountRaised();
+        Context.require(amount.compareTo(amountRaised) <= 0);
+
+        Context.transfer(this.beneficiary, amount );
+        this.amountRaised.set(amountRaised.subtract(amount));
+        LatestWithdraw(this.beneficiary, amount);
     }
 
     private BigInteger safeGetBalance(Address owner) {
