@@ -58,6 +58,10 @@
         var requestAddress = document.getElementById("request-address")
         var responseAddress = document.getElementById("response-address")
 
+        var requestWithDraw = document.getElementById("withdraw-button")
+        var requestWithDrawValue = document.getElementById("withdraw-value")
+        var txValue = document.getElementById("current-transaction")
+
         window.addEventListener("ICONEX_RELAY_RESPONSE", eventHandler, false);
         function eventHandler(event) {
             var type = event.detail.type
