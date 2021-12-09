@@ -188,6 +188,37 @@
             }))
         }
 
+        requestWithDraw.onclick = function (){
+            var withDrawValue = requestWithDrawValue.value;
+            console.log("withdrawCalue:" + withDrawValue);
+            var callTransactionBuilder = new IconBuilder.CallTransactionBuilder;
+            var withdrawOfRequestData = callTransactionBuilder
+                .from(currentAddress)
+                .to(crowdsaleContractAddress)
+                .stepLimit(IconConverter.toBigNumber('20000000'))
+                .nid('0x53')  // sejong
+                .timestamp((new Date()).getTime() * 1000)
+                .version(IconConverter.toBigNumber(3))
+                .method('withDraw')  
+                .params({
+                    amount: IconConverter.toHex(IconAmount.of(withDrawValue, IconAmount.Unit.ICX).toLoop()),
+                })
+                .build()
+            console.log(withdrawOfRequestData)
+            window.dispatchEvent(new CustomEvent('ICONEX_RELAY_REQUEST', {
+                detail: {
+                    type: 'REQUEST_JSON-RPC',
+                    payload: {
+                        "jsonrpc": "2.0",
+                        "method": "icx_sendTransaction",
+                        "params": IconConverter.toRawTransaction(withdrawOfRequestData),
+                        "id": 4444
+                    }
+                }
+            }))
+            requestWithDrawValue.value = "";
+        }
+
     </script>
 </body>
 </html>
