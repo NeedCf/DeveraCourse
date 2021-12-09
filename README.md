@@ -1,1 +1,1 @@
-# DeveraCourse
+# DeveraCourse Lesson 6
