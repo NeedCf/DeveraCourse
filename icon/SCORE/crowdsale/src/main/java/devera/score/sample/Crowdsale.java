@@ -1,6 +1,10 @@
 package devera.score.example;
 
+
+import devera.score.sample.Student;
+
 import score.Address;
+import score.ArrayDB;
 import score.Context;
 import score.DictDB;
 import score.VarDB;
@@ -10,45 +14,48 @@ import score.annotation.Payable;
 
 import java.math.BigInteger;
 
-public class Crowdsale implements ICrowdsale
+public class Crowdsale
 {
     private static final BigInteger ONE_ICX = new BigInteger("1000000000000000000");
-    private final Address beneficiary;
-    private final Address tokenScore;
-    private final BigInteger fundingGoal;
-    private final BigInteger tokenPrice;
+
     private final long deadline;
-    private boolean activeCrowdsale;
     private final DictDB<Address, BigInteger> balances;
     private final VarDB<BigInteger> amountRaised;
+
+    private final Address teacherAddress;
+    private final BigInteger tuition;
     private BigInteger testAmount;
+    private Boolean activeCourse;
+    private final BigInteger numberOfLesson;
+    private BigInteger currentNumberOfLesson;
+    private final ArrayDB<Student> listStudent = Context.newArrayDB("listStudent", Student.class);;
+    private final DictDB<Student, Boolean> check;
 
-    public Crowdsale(BigInteger _fundingGoalInIcx, Address _tokenScore, BigInteger _durationInBlocks, BigInteger _tokenPrice) {
+    public Crowdsale(BigInteger _tuition, BigInteger _numberOfLesson, BigInteger _durationInDefault) {
         // some basic requirements
-        Context.require(_fundingGoalInIcx.compareTo(BigInteger.ZERO) >= 0);
-        Context.require(_durationInBlocks.compareTo(BigInteger.ZERO) >= 0);
+        Context.require(_tuition.compareTo(BigInteger.ZERO) >= 0);
+        Context.require(_numberOfLesson.compareTo(BigInteger.ZERO) >= 0);
 
-        this.beneficiary = Context.getCaller();
-        this.fundingGoal = ONE_ICX.multiply(_fundingGoalInIcx);
-        this.tokenScore = _tokenScore;
-        this.deadline = Context.getBlockHeight() + _durationInBlocks.longValue();
-
-        this.activeCrowdsale = false;
+        this.teacherAddress = Context.getCaller();
+        this.tuition = ONE_ICX.multiply(_tuition);
+        this.numberOfLesson = _numberOfLesson;
+        this.currentNumberOfLesson = BigInteger.ZERO;
+        this.deadline = Context.getBlockHeight() + _durationInDefault.longValue();
+        this.activeCourse = false;
 
         this.balances = Context.newDictDB("balances", BigInteger.class);
         this.amountRaised = Context.newVarDB("amountRaised", BigInteger.class);
-        this.tokenPrice = _tokenPrice;
-        this.testAmount = _fundingGoalInIcx;
+        this.check = Context.newDictDB("check", Boolean.class);
     }
 
     @External(readonly=true)
     public String name() {
-        return "Sample Crowdsale";
+        return "Devera Course";
     }
 
     @External(readonly=true)
     public String description() {
-        return "Devera ICON dapp development course";
+        return "Blockchain course from Devera";
     }
 
     @External(readonly=true)
@@ -57,28 +64,36 @@ public class Crowdsale implements ICrowdsale
     }
 
     @External(readonly=true)
-    public BigInteger amountRaised() {
-        return this.amountRaised.get();
+    public BigInteger CurrentLesson() {
+        return this.currentNumberOfLesson;
     }
 
-    /*
-     * Receives initial tokens to reward to the contributors.
-     */
-    @External
-    public void tokenFallback(Address _from, BigInteger _value, byte[] _data) {
-        // check if the caller is a token SCORE address that this SCORE is interested in
-        Context.require(Context.getCaller().equals(this.tokenScore));
+    @External(readonly=true)
+    public BigInteger amountRaised() {
+        return safeGetAmountRaised();
+    }
 
-        // depositing tokens can only be done by owner
-        Context.require(Context.getOwner().equals(_from));
+    @External(readonly=true)
+    public BigInteger TotalNumberOfLesson() {
+        
+        return this.numberOfLesson;
+    }
 
-        // value should be greater than zero
-        Context.require(_value.compareTo(BigInteger.ZERO) >= 0);
+    @External(readonly=true)
+    public BigInteger checkNumberOfStudentAttended(Address _owner) {
+        
+        return BigInteger.valueOf(this.listStudent.size());
+    }
 
-        // start Crowdsale hereafter
-        this.activeCrowdsale = true;
-        // emit eventlog
-        CrowdsaleStarted(this.fundingGoal, this.deadline);
+    @External(readonly=true)
+    public String isOpenRollCall() {
+        
+        return this.activeCourse.toString();
+    }
+
+    private Boolean afterEndCourse() {
+        
+        return this.currentNumberOfLesson.compareTo(this.numberOfLesson) >= 0;
     }
 
     /*
@@ -86,58 +101,142 @@ public class Crowdsale implements ICrowdsale
      */
     @Payable
     public void fallback() {
-        // check if the crowdsale is closed
-        Context.require(this.activeCrowdsale);
+        // check if the course is ended
+        Context.require(!this.afterEndCourse());
 
         Address _from = Context.getCaller();
+        Context.require(!_from.equals(this.teacherAddress));
         BigInteger _value = Context.getValue();
         Context.require(_value.compareTo(BigInteger.ZERO) > 0);
 
-        // accept the contribution
-        BigInteger fromBalance = safeGetBalance(_from);
-        this.balances.set(_from, fromBalance.add(_value));
+        //check tuition
+        Context.require(_value.compareTo(this.tuition) >= 0);
 
-        // increase the total amount of funding
+        // accept the tuition
+        BigInteger fromBalance = safeGetBalance(_from);
+        if (fromBalance.compareTo(BigInteger.ZERO) <= 0) {
+            Student newStudent = new Student(_from, BigInteger.valueOf(0), _value);
+            //add student address to list student
+            this.listStudent.add( newStudent);
+        }
+             
+        this.balances.set(_from, fromBalance.add(_value));
+    
         BigInteger amountRaised = safeGetAmountRaised();
         this.amountRaised.set(amountRaised.add(_value));
 
-        // give tokens to the contributor as a reward
-        byte[] _data = "called from Crowdsale".getBytes();
-        Context.call(this.tokenScore, "transfer", _from, _value.multiply(this.tokenPrice), _data);
         // emit eventlog
-        FundDeposit(_from, _value);
+        Registration(_from, _value);
     }
 
-    /*
-     * Withdraws the funds safely.
-     *
-     *  - If the funding goal has been reached, sends the entire amount to the beneficiary.
-     *  - If the goal was not reached, each contributor can withdraw the amount they contributed.
-     */
+    private Boolean isAvailableToRefund(Address _from){
+        //counter
+        BigInteger _studentCounter = this.safeGetCounter(_from);
+        if (_studentCounter.compareTo(BigInteger.ZERO) <= 0)
+            return false;
+
+        long _require = this.numberOfLesson.longValue();
+        double _tmp = (double)(_require * 0.8); 
+        _tmp = StrictMath.ceil(_tmp);
+        _require = StrictMath.round(_tmp);
+        BigInteger _requireLesson = BigInteger.valueOf(_require);
+        //balance 
+        BigInteger _studentTuition = this.safeGetBalance(_from);
+        Boolean _checkBalance = (_studentTuition.compareTo(BigInteger.ZERO) > 0);
+        return ((_studentCounter.compareTo(_requireLesson) >= 0) && _checkBalance);
+    }
+
+    private void refund(Address _from, BigInteger _value){
+        this.amountRaised.set(this.amountRaised.get().subtract(_value));
+        this.balances.set(_from,BigInteger.ZERO);
+        Context.transfer(_from,_value);
+    }
+
     @External
-    public void withdraw(BigInteger _value) {
-        Context.require(this.activeCrowdsale);
+    public void withdraw() {
+        // only withdraw when the course is finished
+        Context.require(this.afterEndCourse());
         Address _from = Context.getCaller();
-        if (!this.beneficiary.equals(_from)) {
-            Context.revert("unauthorized");
+        //if caller is teacher
+        if (_from.equals(this.teacherAddress) ){
+            
+            // refund tuition to student first
+            // if not available, delete balance
+            for (int i = 0; i < this.listStudent.size() ; i++){
+                if (isAvailableToRefund(this.listStudent.get(i).getStudentAddress())){
+                    Address _studentAddress = this.listStudent.get(i).getStudentAddress();
+                    BigInteger _value = this.safeGetBalance(_studentAddress);
+                    Context.require(_value.compareTo(BigInteger.ZERO) > 0);
+
+                    refund(_studentAddress, _value);
+                }
+                this.balances.set(this.listStudent.get(i).getStudentAddress(),BigInteger.ZERO);
+            }
+            //refund to teacher
+            BigInteger _amount = this.amountRaised.get();
+            this.amountRaised.set(BigInteger.ZERO);
+            Context.transfer(this.teacherAddress, _amount);
+            return;
         }
 
-        if (!afterDeadline() && !goalReached()) {
-            Context.revert("can not withdraw during crowdsale");
+        //check existed student
+        BigInteger _value = this.safeGetBalance(_from);
+        Context.require(_value.compareTo(BigInteger.ZERO) > 0);
+
+        //check requirement number of class
+        Context.require(isAvailableToRefund(_from));
+
+        //refund to student
+        refund(_from, _value);
+   
+    }
+
+    @External
+    public void rollCall() {
+        Address _from = Context.getCaller();
+        // check if it is in the time of roll call
+        Student _student = studentGetByAddress(_from);
+        if (this.activeCourse)
+            if (!afterDeadline()){
+                BigInteger tmp_num = this.safeGetCounter(_from);
+                _student.setCount(tmp_num.add(BigInteger.ONE));
+            }     
+            else {
+                this.activeCourse = false;
+        } 
+    }
+
+    @External
+    public void openRollCall() {
+        Address _from = Context.getCaller();
+        Context.require(this.teacherAddress.equals(_from));
+        Context.require(!this.activeCourse);
+        //create new list roll call
+        for (int i = 0; i < this.listStudent.size() ; i++)
+            this.check.set(this.listStudent.get(i),false);
+        
+        //check end of course
+        if (!afterEndCourse()){
+            this.activeCourse = true;
+            BigInteger one_big =  new BigInteger("1");
+            this.currentNumberOfLesson = this.currentNumberOfLesson.add(one_big);
+            //even log
+            ActiveCourse(_from,this.currentNumberOfLesson);
+            return;
         }
-
-        BigInteger amountRaised = safeGetAmountRaised();
-
-        if (amountRaised.compareTo(_value) < 0) {
-            Context.revert("overdraw balance");
-        }
-
-        // transfer the funds to beneficiary
-        Context.transfer(this.beneficiary, _value);
-        // emit eventlog
-        FundWithdraw(this.beneficiary, _value);
-        // reset amountRaised
-        this.amountRaised.set(amountRaised.subtract(_value));
+        
+    }
+    @External
+    public void closeRollCall() {
+        Address _from = Context.getCaller();
+        Context.require(this.teacherAddress.equals(_from));
+        Context.require(this.activeCourse);
+        
+        this.activeCourse = false;
+        
+      
+        //even log
+        InActiveCourse(_from,this.currentNumberOfLesson);
     }
 
     private BigInteger safeGetBalance(Address owner) {
@@ -148,25 +247,44 @@ public class Crowdsale implements ICrowdsale
         return this.amountRaised.getOrDefault(BigInteger.ZERO);
     }
 
+    private BigInteger safeGetCounter(Address owner) {
+        for (int i = 0; i < this.listStudent.size(); i++) {
+            if (this.listStudent.get(i).getStudentAddress().toString().compareTo(owner.toString()) == 0) {
+                return BigInteger.valueOf(i);
+            }
+        }
+        return BigInteger.valueOf(-1);
+    }
+
+    private Student studentGetByAddress(Address owner) {
+        for (int i = 0; i < this.listStudent.size(); i++) {
+            if (this.listStudent.get(i).getStudentAddress().toString().compareTo(owner.toString()) == 0) {
+                return this.listStudent.get(i);
+            }
+        }
+        return null;
+    }
+
     private boolean afterDeadline() {
         // checks if it has been reached to the deadline block
         return Context.getBlockHeight() >= this.deadline;
     }
 
-    private boolean goalReached() {
-        if (this.amountRaised.get().compareTo(this.fundingGoal) >= 0) {
-            return true;
-        }
 
-        return false;
-    }
 
-    @EventLog
-    public void CrowdsaleStarted(BigInteger fundingGoal, long deadline) {}
 
     @EventLog(indexed=2)
     public void FundDeposit(Address backer, BigInteger amount) {}
 
     @EventLog(indexed=2)
+    protected void Registration(Address _from,BigInteger _value){};
+
+    @EventLog(indexed=2)
     protected void FundWithdraw(Address owner, BigInteger amount) {}
+
+    @EventLog(indexed=2)
+    protected void ActiveCourse(Address _from,BigInteger _currentNumberOfLesson){};
+
+    @EventLog(indexed=2)
+    protected void InActiveCourse(Address _from,BigInteger _currentNumberOfLesson){};
 }

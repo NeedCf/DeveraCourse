@@ -2,10 +2,8 @@ package devera.score.sample;
 
 import score.Address;
 import java.math.BigInteger;
-import java.util.List;
 import score.ObjectReader;
 import score.ObjectWriter;
-import scorex.util.ArrayList;
 import java.util.Map;
 
 public class Student {
@@ -29,6 +27,10 @@ public class Student {
 
     public BigInteger getTuitionFee() {
         return this.tuitionFee;
+    }
+
+    public void setCount(BigInteger count) {
+        this.attendance = count;
     }
 
     public Map<String, Object> toMap() {
